@@ -3,25 +3,69 @@ import { verifyClaim } from "./citation.service";
 import { calculateTrustScore } from "./scoring.service";
 import { VerificationResult } from "../model/VerificationResult";
 
-const analyze = async (text: string) => {
+const analyze = async (text: string, userId?: string) => {
   const claims = await extractClaims(text);
 
   const verifiedClaims = await Promise.all(
-    claims.map(async (c, idx) => ({
-      id: `c${idx + 1}`,
-      text: c,
-      ...(await verifyClaim(c))
-    }))
+    claims.map(async (c, idx) => {
+      const verification = await verifyClaim(c);
+      return {
+        id: `c${idx + 1}`,
+        claim: c, // Frontend expects 'claim' not 'text'
+        status: verification.status,
+        confidence: verification.confidence,
+        explanation: verification.explanation,
+        evidence: verification.evidence
+      };
+    })
   );
 
   const scoreResult = calculateTrustScore(verifiedClaims);
 
   const verifiedText = verifiedClaims
-    .filter((c) => c.status === "VERIFIED")
-    .map((c) => c.text)
+    .filter((c) => c.status === "verified")
+    .map((c) => c.claim)
     .join(". ");
 
+  // Stopwords and pronouns to filter out from sources
+  const badSourceWords = new Set([
+    'the', 'a', 'an', 'his', 'her', 'its', 'their', 'he', 'she', 'it', 'they',
+    'this', 'that', 'these', 'those', 'is', 'are', 'was', 'were', 'be', 'been',
+    'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should',
+    'may', 'might', 'must', 'can', 'however', 'although', 'because', 'since',
+    'while', 'when', 'where', 'which', 'who', 'whom', 'whose', 'what', 'how',
+    'and', 'or', 'but', 'if', 'then', 'else', 'for', 'with', 'from', 'to', 'of',
+    'in', 'on', 'at', 'by', 'as', 'verification engine', 'wikipedia:'
+  ]);
+
+  // Helper to check if source title is valid
+  const isValidSource = (title: string): boolean => {
+    const lowerTitle = title.toLowerCase().trim();
+    // Must be at least 3 characters
+    if (lowerTitle.length < 3) return false;
+    // Check for "Wikipedia: X" pattern and validate X
+    if (lowerTitle.startsWith('wikipedia:')) {
+      const entity = lowerTitle.replace('wikipedia:', '').trim();
+      if (entity.length < 3 || badSourceWords.has(entity)) return false;
+    }
+    // Check if it's just a stopword
+    if (badSourceWords.has(lowerTitle)) return false;
+    return true;
+  };
+
+  // Extract sources for frontend - CLEANED
+  const sources = verifiedClaims
+    .flatMap((c) => c.evidence)
+    .filter((e) => isValidSource(e.source))
+    .filter((e, i, arr) => arr.findIndex((x) => x.source === e.source) === i)
+    .map((e) => ({
+      title: e.source,
+      url: e.url || `https://en.wikipedia.org/wiki/${encodeURIComponent(e.source.replace('Wikipedia: ', '').replace(/ /g, '_'))}`,
+      verified: e.verdict.toLowerCase().includes("support")
+    }));
+
   const saved = await VerificationResult.create({
+    userId: userId || null,
     originalText: text,
     trustScore: scoreResult.score,
     label: scoreResult.label,
@@ -29,10 +73,14 @@ const analyze = async (text: string) => {
     verifiedText
   });
 
+  // Return format matching frontend expectations
   return {
     analysisId: saved._id,
-    trustScore: scoreResult.score,
+    score: scoreResult.score,
     label: scoreResult.label,
+    claims: verifiedClaims,
+    sources,
+    verifiedText,
     summary: `${verifiedClaims.length} claims analyzed`
   };
 };
@@ -75,8 +123,8 @@ const getVerifiedText = async (id: string) => {
   if (!result) throw new Error("not_found");
 
   const removedClaims = (result.claims as any[])
-    .filter((c: any) => c.status !== "VERIFIED")
-    .map((c: any) => c.text);
+    .filter((c: any) => c.status !== "verified")
+    .map((c: any) => c.claim || c.text);
 
   return {
     verifiedText: result.verifiedText,
