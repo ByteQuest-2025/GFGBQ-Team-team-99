@@ -1,59 +1,63 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Sidebar } from "@/components/dashboard/sidebar"
 import { AnalysisInput } from "@/components/dashboard/analysis-input"
 import { ResultsArea } from "@/components/dashboard/results-area"
 import { InsightRail } from "@/components/dashboard/insight-rail"
 import { MobileHeader } from "@/components/dashboard/mobile-header"
 import { motion, AnimatePresence } from "framer-motion"
-import { TrendingUp, Users, Shield, Zap, Briefcase, HeartPulse, Scale } from "lucide-react"
-
-const MOCK_DATA = {
-  score: 68,
-  claims: [
-    {
-      status: "verified" as const,
-      confidence: 98,
-      claim: "Albert Einstein was born in Ulm, Germany, on March 14, 1879.",
-      explanation: "Confirmed by multiple archival and biographical records.",
-    },
-    {
-      status: "hallucinated" as const,
-      confidence: 12,
-      claim: "Einstein won the Nobel Prize for his Theory of General Relativity.",
-      explanation: "Factually incorrect. He won the prize for his discovery of the law of the photoelectric effect.",
-    },
-    {
-      status: "uncertain" as const,
-      confidence: 54,
-      claim: "He spent his childhood years primarily in Zurich before moving to Milan.",
-      explanation: "Partially correct; move to Milan happened after school years in Munich, not Zurich.",
-    },
-  ],
-  sources: [
-    { title: "NobelPrize.org Archives", url: "nobelprize.org", verified: true },
-    { title: "Britannica: Albert Einstein", url: "britannica.com", verified: true },
-    { title: "Einstein Papers Project", url: "einsteinpapers.press.princeton.edu", verified: true },
-    { title: "Unknown Blogspot (Flagged)", url: "scienceinfo.co", suspicious: true },
-  ],
-}
+import { TrendingUp, Users, Shield, Zap, Briefcase, HeartPulse, Scale, Loader2 } from "lucide-react"
+import { analyzeText, AnalysisResult } from "@/lib/api"
+import { useAuth } from "@/lib/auth-context"
+import { useRouter } from "next/navigation"
 
 export default function Dashboard() {
   const [analyzing, setAnalyzing] = useState(false)
   const [hasResults, setHasResults] = useState(false)
   const [content, setContent] = useState("")
+  const [analysisData, setAnalysisData] = useState<AnalysisResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleAnalyze = (input: string) => {
+  const { user, isLoggedIn, loading: authLoading } = useAuth()
+  const router = useRouter()
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!authLoading && !isLoggedIn) {
+      router.push("/auth")
+    }
+  }, [authLoading, isLoggedIn, router])
+
+  const handleAnalyze = async (input: string) => {
     if (!input.trim()) return
     setContent(input)
     setAnalyzing(true)
     setHasResults(false)
+    setError(null)
 
-    setTimeout(() => {
-      setAnalyzing(false)
+    try {
+      const result = await analyzeText(input)
+      setAnalysisData(result)
       setHasResults(true)
-    }, 2500)
+    } catch (err) {
+      console.error("Analysis failed:", err)
+      setError(err instanceof Error ? err.message : "Analysis failed. Please try again.")
+    } finally {
+      setAnalyzing(false)
+    }
+  }
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#020202]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+
+  if (!isLoggedIn) {
+    return null
   }
 
   return (
@@ -199,8 +203,19 @@ export default function Dashboard() {
               </motion.div>
             )}
 
+            {/* Error Message */}
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-8 p-6 glass rounded-2xl border-red-500/20 bg-red-500/5"
+              >
+                <p className="text-red-400 text-center">{error}</p>
+              </motion.div>
+            )}
+
             <AnimatePresence>
-              {(analyzing || hasResults) && (
+              {(analyzing || hasResults) && analysisData && (
                 <motion.div
                   initial={{ opacity: 0, y: 40 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -208,14 +223,19 @@ export default function Dashboard() {
                   transition={{ type: "spring", damping: 20, stiffness: 100 }}
                   className="mt-12"
                 >
-                  <ResultsArea analyzing={analyzing} data={MOCK_DATA} originalContent={content} />
+                  <ResultsArea analyzing={analyzing} data={analysisData} originalContent={content} />
                 </motion.div>
               )}
             </AnimatePresence>
           </div>
         </div>
 
-        <InsightRail visible={hasResults} sources={MOCK_DATA.sources} />
+        <InsightRail 
+          visible={hasResults} 
+          sources={analysisData?.sources || []} 
+          score={analysisData?.score}
+          claims={analysisData?.claims}
+        />
       </main>
     </div>
   )

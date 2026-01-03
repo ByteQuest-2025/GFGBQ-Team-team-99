@@ -1,14 +1,16 @@
 "use client"
 
-import { Shield, LayoutDashboard, History, Settings, Info, Zap, Menu, X } from "lucide-react"
+import { Shield, LayoutDashboard, History, Settings, Info, Zap, Menu, X, LogOut, User } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
+import { useAuth } from "@/lib/auth-context"
 
 export function Sidebar() {
   const pathname = usePathname()
   const [isOpen, setIsOpen] = useState(false)
+  const { user, logout, isLoggedIn } = useAuth()
 
   // <CHANGE> Close mobile menu on route change
   useEffect(() => {
@@ -56,13 +58,19 @@ export function Sidebar() {
         </Link>
 
         {/* <CHANGE> Mobile Logo in Sidebar */}
-        <div className="md:hidden w-full px-8 mb-12">
+        <div className="md:hidden w-full px-8 mb-8">
            <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center">
               <Shield className="w-6 h-6 text-white" />
             </div>
             <span className="font-black tracking-tighter text-2xl uppercase">TrustLayer</span>
           </div>
+          {isLoggedIn && user && (
+            <div className="mt-4 p-3 bg-white/5 rounded-xl">
+              <p className="text-sm font-bold truncate">{user.name}</p>
+              <p className="text-[10px] text-muted-foreground truncate">{user.email}</p>
+            </div>
+          )}
         </div>
 
         <nav className="flex flex-col gap-6 md:gap-10 flex-1 w-full px-4 md:px-0">
@@ -72,7 +80,41 @@ export function Sidebar() {
           <NavItem href="/about" icon={Info} label="About" active={pathname === "/about"} activeLabel />
         </nav>
 
-        <div className="flex flex-col gap-8 mt-auto px-4 md:px-0 w-full items-center">
+        <div className="flex flex-col gap-4 mt-auto px-4 md:px-0 w-full items-center">
+          {/* User info for desktop */}
+          {isLoggedIn && user && (
+            <div className="hidden md:block group relative w-full md:w-auto">
+              <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center mx-auto cursor-pointer">
+                <User className="w-5 h-5 text-primary" />
+              </div>
+              <div className="absolute left-full ml-4 top-1/2 -translate-y-1/2 px-3 py-2 glass rounded-lg text-[10px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                {user.name}
+              </div>
+            </div>
+          )}
+          
+          {/* Logout button */}
+          {isLoggedIn ? (
+            <button
+              onClick={logout}
+              className="group relative w-full md:w-auto flex justify-center items-center gap-3 px-4 py-3 md:p-3 rounded-xl hover:bg-red-500/10 transition-colors"
+            >
+              <LogOut className="w-5 h-5 text-muted-foreground group-hover:text-red-500" />
+              <span className="md:hidden text-sm font-bold text-muted-foreground group-hover:text-red-500">Logout</span>
+              <div className="absolute left-full ml-4 top-1/2 -translate-y-1/2 px-3 py-2 glass rounded-lg text-[10px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity hidden md:block pointer-events-none">
+                Logout
+              </div>
+            </button>
+          ) : (
+            <Link
+              href="/auth"
+              className="group relative w-full md:w-auto flex justify-center items-center gap-3 px-4 py-3 md:p-3 rounded-xl hover:bg-primary/10 transition-colors"
+            >
+              <User className="w-5 h-5 text-muted-foreground group-hover:text-primary" />
+              <span className="md:hidden text-sm font-bold text-muted-foreground group-hover:text-primary">Login</span>
+            </Link>
+          )}
+
           <div className="group relative w-full md:w-auto flex justify-center">
             <div className="w-full md:w-10 h-12 md:h-10 rounded-xl md:rounded-full border border-primary/20 flex items-center justify-center bg-primary/5 cursor-help gap-3 px-4 md:px-0">
               <Zap className="w-4 h-4 text-primary" />

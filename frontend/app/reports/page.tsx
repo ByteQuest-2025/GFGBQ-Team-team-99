@@ -1,47 +1,80 @@
 "use client"
 
-import { Suspense } from "react"
+import { Suspense, useEffect, useState } from "react"
 import { Sidebar } from "@/components/dashboard/sidebar"
 import { MobileHeader } from "@/components/dashboard/mobile-header"
-import { History, Search, Filter, Settings2, FileText, ChevronRight } from "lucide-react"
+import { History, Search, Filter, Settings2, FileText, ChevronRight, Loader2, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import Link from "next/link"
-
-const REPORTS = [
-  {
-    id: "rep_9238",
-    title: "Einstein Biography Verification",
-    timestamp: "2 hours ago",
-    score: 68,
-    status: "Flagged",
-    model: "GPT-4o",
-  },
-  {
-    id: "rep_1284",
-    title: "Quantum Computing Claim Analysis",
-    timestamp: "1 day ago",
-    score: 94,
-    status: "Verified",
-    model: "Claude 3.5 Sonnet",
-  },
-  {
-    id: "rep_4821",
-    title: "Quarterly Financial Analysis Scrutiny",
-    timestamp: "3 days ago",
-    score: 42,
-    status: "Critical",
-    model: "Gemini Pro",
-  },
-]
+import { useAuth } from "@/lib/auth-context"
+import { getReports, deleteReport, Report } from "@/lib/api"
+import { useRouter } from "next/navigation"
 
 export default function ReportsPage() {
+  const [reports, setReports] = useState<Report[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+  const [searchQuery, setSearchQuery] = useState("")
+  const [deleting, setDeleting] = useState<string | null>(null)
+  
+  const { isLoggedIn, loading: authLoading } = useAuth()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (!authLoading && !isLoggedIn) {
+      router.push("/auth")
+      return
+    }
+
+    if (isLoggedIn) {
+      fetchReports()
+    }
+  }, [isLoggedIn, authLoading, router])
+
+  const fetchReports = async () => {
+    try {
+      setLoading(true)
+      const data = await getReports()
+      setReports(data)
+    } catch (err: any) {
+      setError(err.message || "Failed to load reports")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this report?")) return
+    
+    try {
+      setDeleting(id)
+      await deleteReport(id)
+      setReports(reports.filter(r => r.id !== id))
+    } catch (err: any) {
+      alert("Failed to delete report")
+    } finally {
+      setDeleting(null)
+    }
+  }
+
+  const filteredReports = reports.filter(r => 
+    r.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    r.id.toLowerCase().includes(searchQuery.toLowerCase())
+  )
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#050505]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-screen bg-[#050505] overflow-hidden selection:bg-primary/30">
-      {/* <CHANGE> Added mobile header for responsive navigation */}
       <MobileHeader />
       
-      {/* <CHANGE> Hide sidebar on mobile, show on desktop */}
       <div className="hidden lg:flex">
         <Sidebar />
       </div>
@@ -49,7 +82,6 @@ export default function ReportsPage() {
       <main className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-10 pt-20 lg:pt-10">
         <Suspense fallback={null}>
           <div className="max-w-6xl mx-auto space-y-6 md:space-y-10">
-            {/* <CHANGE> Made header responsive with mobile column layout */}
             <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
               <div>
                 <h1 className="text-2xl md:text-4xl font-black tracking-tight flex items-center gap-3">
@@ -57,24 +89,40 @@ export default function ReportsPage() {
                 </h1>
                 <p className="text-muted-foreground mt-1 text-sm">Audit log of all AI verification sessions.</p>
               </div>
-              {/* <CHANGE> Made search bar full width on mobile */}
               <div className="flex gap-3 flex-col sm:flex-row">
                 <div className="relative flex-1 sm:flex-initial">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
                     placeholder="Search reports..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-10 glass border-white/10 w-full sm:w-64 h-10 rounded-xl bg-transparent"
                   />
                 </div>
-                <Button variant="outline" size="sm" className="glass border-white/10 bg-transparent h-10 px-4 gap-2">
-                  <Filter className="w-4 h-4" /> Filter
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="glass border-white/10 bg-transparent h-10 px-4 gap-2"
+                  onClick={fetchReports}
+                >
+                  <Filter className="w-4 h-4" /> Refresh
                 </Button>
               </div>
             </header>
 
-            {/* <CHANGE> Made table responsive with horizontal scroll on mobile */}
+            {error && (
+              <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">
+                {error}
+              </div>
+            )}
+
             <div className="glass rounded-2xl md:rounded-[3rem] overflow-hidden border-white/10">
-              {REPORTS.length > 0 ? (
+              {loading ? (
+                <div className="p-12 md:p-20 text-center">
+                  <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-4" />
+                  <p className="text-muted-foreground">Loading reports...</p>
+                </div>
+              ) : filteredReports.length > 0 ? (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left min-w-[800px]">
                     <thead className="border-b border-white/5 bg-white/5">
@@ -82,12 +130,12 @@ export default function ReportsPage() {
                         <th className="px-4 md:px-8 py-4 md:py-6">ID / Report Title</th>
                         <th className="px-4 md:px-8 py-4 md:py-6">Trust Score</th>
                         <th className="px-4 md:px-8 py-4 md:py-6">Status</th>
-                        <th className="px-4 md:px-8 py-4 md:py-6">Source Model</th>
+                        <th className="px-4 md:px-8 py-4 md:py-6">Time</th>
                         <th className="px-4 md:px-8 py-4 md:py-6 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
-                      {REPORTS.map((report) => (
+                      {filteredReports.map((report) => (
                         <tr key={report.id} className="group hover:bg-white/[0.02] transition-colors">
                           <td className="px-4 md:px-8 py-4 md:py-6">
                             <div className="flex items-center gap-3 md:gap-4">
@@ -96,7 +144,7 @@ export default function ReportsPage() {
                               </div>
                               <div>
                                 <p className="font-bold tracking-tight text-sm md:text-base">{report.title}</p>
-                                <p className="text-[10px] text-muted-foreground font-mono">{report.id}</p>
+                                <p className="text-[10px] text-muted-foreground font-mono">{report.id.slice(0, 12)}...</p>
                               </div>
                             </div>
                           </td>
@@ -125,25 +173,31 @@ export default function ReportsPage() {
                             </span>
                           </td>
                           <td className="px-4 md:px-8 py-4 md:py-6 text-xs md:text-sm text-muted-foreground font-medium">
-                            {report.model}
+                            {report.timestamp}
                           </td>
                           <td className="px-4 md:px-8 py-4 md:py-6">
                             <div className="flex items-center justify-end gap-2">
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                className="h-8 w-8 p-0 rounded-lg hover:bg-white/5"
-                                asChild
+                                className="h-8 w-8 p-0 rounded-lg hover:bg-red-500/10"
+                                onClick={() => handleDelete(report.id)}
+                                disabled={deleting === report.id}
                               >
-                                <Link href={`/settings?reportId=${report.id}`}>
-                                  <Settings2 className="w-4 h-4 text-muted-foreground" />
-                                </Link>
+                                {deleting === report.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="w-4 h-4 text-muted-foreground hover:text-red-500" />
+                                )}
                               </Button>
                               <Button
                                 size="sm"
                                 className="h-8 px-3 md:px-4 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 group-hover:bg-primary group-hover:text-white transition-all text-[11px] font-bold"
+                                asChild
                               >
-                                VIEW <ChevronRight className="w-3 h-3 ml-1" />
+                                <Link href={`/dashboard?reportId=${report.id}`}>
+                                  VIEW <ChevronRight className="w-3 h-3 ml-1" />
+                                </Link>
                               </Button>
                             </div>
                           </td>
@@ -162,7 +216,7 @@ export default function ReportsPage() {
                     Start your first verification to generate an audit report.
                   </p>
                   <Button className="mt-4 glow-primary" asChild>
-                    <Link href="/dashboard">Return to Dashboard</Link>
+                    <Link href="/dashboard">Go to Dashboard</Link>
                   </Button>
                 </div>
               )}
