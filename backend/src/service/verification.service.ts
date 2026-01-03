@@ -1,134 +1,86 @@
-import { randomUUID } from 'crypto';
-import { extractClaims } from './claim.service.js';
-import { verifyClaim } from './citation.service.js';
-import { calculateTrustScore, generateSafeRewrite } from './scoring.service.js';
-import {
-  AnalyzeResponseDto,
-  ClaimListItemDto,
-  EvidenceResponseDto,
-  VerifyResponseDto,
-  VerifiedTextResponseDto
-} from '../dto/verification.dto.js';
-import { ClaimStatus } from '../enums/claim-status.enum.js';
-import { verificationDao } from '../dao/verification.dao.js';
+import { extractClaims } from "./claim.service";
+import { verifyClaim } from "./citation.service";
+import { calculateTrustScore } from "./scoring.service";
+import { VerificationResult } from "../model/VerificationResult";
 
-type RunRecord = VerifyResponseDto & {
-  analysisId: string;
-  inputText: string;
-  removedClaims: string[];
-};
-
-const runs = new Map<string, RunRecord>();
-const claimIndex = new Map<string, string>();
-
-const computeVerification = async (text: string): Promise<VerifyResponseDto> => {
+const analyze = async (text: string) => {
   const claims = await extractClaims(text);
 
   const verifiedClaims = await Promise.all(
-    claims.map(async (claim, idx) => ({
+    claims.map(async (c, idx) => ({
       id: `c${idx + 1}`,
-      text: claim,
-      ...(await verifyClaim(claim))
+      text: c,
+      ...(await verifyClaim(c))
     }))
   );
 
   const scoreResult = calculateTrustScore(verifiedClaims);
-  const verifiedText = generateSafeRewrite(verifiedClaims);
+
+  const verifiedText = verifiedClaims
+    .filter((c) => c.status === "VERIFIED")
+    .map((c) => c.text)
+    .join(". ");
+
+  const saved = await VerificationResult.create({
+    originalText: text,
+    trustScore: scoreResult.score,
+    label: scoreResult.label,
+    claims: verifiedClaims,
+    verifiedText
+  });
 
   return {
-    ...scoreResult,
-    claims: verifiedClaims,
-    verifiedText,
+    analysisId: saved._id,
+    trustScore: scoreResult.score,
+    label: scoreResult.label,
     summary: `${verifiedClaims.length} claims analyzed`
   };
 };
 
-const analyze = async (text: string): Promise<AnalyzeResponseDto> => {
-  const analysisId = randomUUID();
-  const verification = await computeVerification(text);
-
-  const claimsWithIds = verification.claims.map((c, idx) => ({
-    ...c,
-    id: `${analysisId}-c${idx + 1}`
-  }));
-
-  const run: RunRecord = {
-    analysisId,
-    inputText: text,
-    removedClaims: claimsWithIds.filter((c) => c.status !== ClaimStatus.VERIFIED).map((c) => c.text),
-    trustScore: verification.trustScore,
-    label: verification.label,
-    claims: claimsWithIds,
-    verifiedText: verification.verifiedText,
-    summary: verification.summary
-  };
-
-  runs.set(analysisId, run);
-  run.claims.forEach((c) => claimIndex.set(c.id, analysisId));
-
-  try {
-    await verificationDao.create({
-      trustScore: run.trustScore,
-      label: run.label,
-      claims: run.claims,
-      verifiedText: run.verifiedText,
-      summary: run.summary,
-      inputText: text
-    });
-  } catch (err) {
-    console.warn('Persisting verification failed (non-blocking)', err);
-  }
-
-  return {
-    analysisId,
-    trustScore: verification.trustScore,
-    label: verification.label,
-    summary: verification.summary
-  };
+const getClaims = async (id: string) => {
+  const result = await VerificationResult.findById(id);
+  if (!result) throw new Error("not_found");
+  return result.claims;
 };
 
-const getClaims = async (analysisId: string): Promise<ClaimListItemDto[]> => {
-  const run = runs.get(analysisId);
-  if (!run) {
-    throw new Error('analysis_not_found');
-  }
-  return run.claims.map(({ id, text, status, confidence, shortReason }) => ({ id, text, status, confidence, shortReason }));
-};
-
-const getEvidence = async (claimId: string): Promise<EvidenceResponseDto> => {
-  const analysisId = claimIndex.get(claimId);
-  if (!analysisId) {
-    throw new Error('claim_not_found');
-  }
-  const run = runs.get(analysisId);
-  if (!run) {
-    throw new Error('analysis_not_found');
-  }
-  const claim = run.claims.find((c) => c.id === claimId);
-  if (!claim) {
-    throw new Error('claim_not_found');
-  }
-
-  return {
-    claimId: claim.id,
-    status: claim.status,
-    evidence: claim.evidence,
-    citationCheck: {
-      exists: claim.evidence.length > 0,
-      valid: claim.status === ClaimStatus.VERIFIED,
-      reason: claim.status === ClaimStatus.VERIFIED ? 'Citation matches supporting source' : 'Citation missing or contradicted'
+const getEvidence = async (claimId: string) => {
+  // For demo: claim IDs are simple like "c1", "c2"
+  // In production you'd index claims separately
+  const allResults = await VerificationResult.find().limit(50);
+  
+  for (const result of allResults) {
+    const claim = (result.claims as any[]).find((c: any) => c.id === claimId);
+    if (claim) {
+      return {
+        claimId: claim.id,
+        status: claim.status,
+        evidence: claim.evidence,
+        citationCheck: {
+          exists: claim.evidence.length > 0,
+          valid: claim.status === "VERIFIED",
+          reason:
+            claim.status === "VERIFIED"
+              ? "Citation matches supporting source"
+              : "Citation missing or contradicted"
+        }
+      };
     }
-  };
+  }
+  
+  throw new Error("not_found");
 };
 
-const getVerifiedText = async (analysisId: string): Promise<VerifiedTextResponseDto> => {
-  const run = runs.get(analysisId);
-  if (!run) {
-    throw new Error('analysis_not_found');
-  }
+const getVerifiedText = async (id: string) => {
+  const result = await VerificationResult.findById(id);
+  if (!result) throw new Error("not_found");
+
+  const removedClaims = (result.claims as any[])
+    .filter((c: any) => c.status !== "VERIFIED")
+    .map((c: any) => c.text);
+
   return {
-    verifiedText: run.verifiedText,
-    removedClaims: run.removedClaims
+    verifiedText: result.verifiedText,
+    removedClaims
   };
 };
 

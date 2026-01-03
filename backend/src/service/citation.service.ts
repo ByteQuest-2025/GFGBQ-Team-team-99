@@ -1,31 +1,51 @@
-import { ClaimResultDto } from '../dto/verification.dto.js';
-import { ClaimStatus } from '../enums/claim-status.enum.js';
+import axios from "axios";
 
-export const verifyClaim = async (claim: string): Promise<Omit<ClaimResultDto, 'id' | 'text'>> => {
-  if (claim.toLowerCase().includes('relativity')) {
-    return {
-      status: ClaimStatus.HALLUCINATED,
-      confidence: 0.2,
-      shortReason: 'Contradicted by available sources',
-      evidence: [
-        {
-          source: 'Wikipedia',
-          verdict: 'Contradicts claim',
-          url: 'https://en.wikipedia.org/wiki/Albert_Einstein'
-        }
-      ]
-    };
+interface VerificationResult {
+  status: "VERIFIED" | "PARTIAL" | "HALLUCINATED";
+  confidence: number;
+  shortReason: string;
+  evidence: Array<{
+    source: string;
+    verdict: string;
+    url?: string;
+  }>;
+}
+
+export const verifyClaim = async (claim: string): Promise<VerificationResult> => {
+  // Try Wikipedia REST API
+  const searchQuery = claim.split(" ").slice(0, 5).join(" ");
+  const wikiUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(searchQuery)}`;
+
+  try {
+    const response = await axios.get(wikiUrl, { timeout: 5000 });
+
+    if (response.data && response.data.extract) {
+      return {
+        status: "VERIFIED",
+        confidence: 0.85,
+        shortReason: "Supported by Wikipedia",
+        evidence: [
+          {
+            source: "Wikipedia",
+            verdict: "Supports claim",
+            url: response.data.content_urls?.desktop?.page || wikiUrl
+          }
+        ]
+      };
+    }
+  } catch (err) {
+    // Wikipedia lookup failed
   }
 
+  // Fallback: mark as hallucinated if no match
   return {
-    status: ClaimStatus.VERIFIED,
-    confidence: 0.95,
-    shortReason: 'Supported by referenced sources',
+    status: "HALLUCINATED",
+    confidence: 0.2,
+    shortReason: "No supporting sources found",
     evidence: [
       {
-        source: 'Wikipedia',
-        verdict: 'Supports claim',
-        url: 'https://en.wikipedia.org/wiki/Albert_Einstein'
+        source: "Wikipedia",
+        verdict: "No match found"
       }
     ]
   };

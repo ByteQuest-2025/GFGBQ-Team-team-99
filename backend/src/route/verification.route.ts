@@ -1,16 +1,16 @@
-import { Router } from 'express';
+import { Router } from "express";
 import {
-	analyzeResponse,
-	getClaimEvidence,
-	getClaims,
-	getVerifiedText
-} from '../controller/verification.controller.js';
+  analyzeText,
+  getClaims,
+  getClaimEvidence,
+  getVerifiedText
+} from "../controller/verification.controller";
 
 const router = Router();
 
-router.post('/verification/analyze', analyzeResponse);
-router.get('/verification/:analysisId/claims', getClaims);
-router.get('/verification/claim/:claimId/evidence', getClaimEvidence);
-router.get('/verification/:analysisId/verified-text', getVerifiedText);
+router.post("/analyze", analyzeText);
+router.get("/:id/claims", getClaims);
+router.get("/claim/:claimId/evidence", getClaimEvidence);
+router.get("/:id/verified-text", getVerifiedText);
 
 export default router;
