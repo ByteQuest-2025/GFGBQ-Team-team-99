@@ -45,7 +45,7 @@ TrustLayer AI is a hackathon-ready, scalable verification platform for AI-genera
 
 ## PPT Link
 
-Pending (deck is being finalized for judging)
+https://drive.google.com/file/d/1sj6_izikf9PC7F0bF82A7zj3afpJDLFX/view?usp=sharing
 
 ## Setup and Installation
 
